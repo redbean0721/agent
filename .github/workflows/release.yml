@@ -1,0 +1,127 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build for ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux AMD64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: taiwanfrp
+            asset_prefix: taiwanfrp-linux-amd64
+            asset_ext: ""
+          # Linux ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: taiwanfrp
+            asset_prefix: taiwanfrp-linux-arm64
+            asset_ext: ""
+          # Linux ARM32
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            artifact_name: taiwanfrp
+            asset_prefix: taiwanfrp-linux-arm32
+            asset_ext: ""
+          # Windows AMD64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: taiwanfrp.exe
+            asset_prefix: taiwanfrp-windows-amd64
+            asset_ext: ".exe"
+          # Windows ARM64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact_name: taiwanfrp.exe
+            asset_prefix: taiwanfrp-windows-arm64
+            asset_ext: ".exe"
+          # macOS AMD64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: taiwanfrp
+            asset_prefix: taiwanfrp-macos-amd64
+            asset_ext: ""
+          # macOS ARM64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: taiwanfrp
+            asset_prefix: taiwanfrp-macos-arm64
+            asset_ext: ""
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.target }}
+
+      - name: Install cross-compiler (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Install cross-compiler (Linux ARM32)
+        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf
+
+      - name: Build Release
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+
+      - name: Rename output file (Linux & macOS)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        run: mv target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_prefix }}-${{ github.ref_name }}${{ matrix.asset_ext }}
+
+      - name: Rename and move output file (Windows)
+        if: matrix.os == 'windows-latest'
+        run: Move-Item -Path "target\${{ matrix.target }}\release\${{ matrix.artifact_name }}" -Destination "${{ matrix.asset_prefix }}-${{ github.ref_name }}${{ matrix.asset_ext }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.target }}
+          path: ${{ matrix.asset_prefix }}-${{ github.ref_name }}${{ matrix.asset_ext }}
+          retention-days: 7
+
+  release:
+    name: Create Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

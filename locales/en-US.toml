@@ -1,0 +1,8 @@
+welcome = "Welcome to the TaiwanFRP Agent!"
+
+[auth]
+credentials_not_found = "No saved credentials found. Please enter your username and password"
+credentials_found = "Saved credentials found. Logging in automatically..."
+username = "Username: "
+password = "Password: "
+credentials_saved = "Credentials saved successfully"
