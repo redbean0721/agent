@@ -15,6 +15,9 @@ use windows_sys::Win32::System::Threading::{
     CreateRemoteThread, GetExitCodeProcess, WaitForSingleObject,
 };
 
+#[cfg(target_os = "windows")]
+pub static STUB_EXE: &[u8] = include_bytes!("../stub/stub.exe");
+
 fn rva_to_file_offset(pe: &PE, rva: usize) -> Option<usize> {
     pe.sections
         .iter()
