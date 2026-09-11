@@ -130,32 +130,15 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
 
-      - name: Package Windows AMD64
-        if: matrix.target == 'x86_64-pc-windows-msvc'
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Path release
-          Copy-Item "target\${{ matrix.target }}\release\${{ matrix.artifact_name }}" release\
-          Compress-Archive -Path release\* -DestinationPath "${{ matrix.asset_prefix }}-${{ github.ref_name }}.zip"
-
       - name: Rename output file (Linux & macOS)
         if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
         run: mv target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_prefix }}-${{ github.ref_name }}${{ matrix.asset_ext }}
 
-      - name: Rename and move output file (Windows ARM64)
-        if: matrix.target == 'aarch64-pc-windows-msvc'
+      - name: Rename output file (Windows)
+        if: matrix.os == 'windows-latest'
         run: Move-Item -Path "target\${{ matrix.target }}\release\${{ matrix.artifact_name }}" -Destination "${{ matrix.asset_prefix }}-${{ github.ref_name }}${{ matrix.asset_ext }}"
 
-      - name: Upload artifact (Windows AMD64)
-        if: matrix.target == 'x86_64-pc-windows-msvc'
-        uses: actions/upload-artifact@v4
-        with:
-          name: artifact-${{ matrix.target }}
-          path: ${{ matrix.asset_prefix }}-${{ github.ref_name }}.zip
-          retention-days: 7
-
-      - name: Upload artifact (others)
-        if: matrix.target != 'x86_64-pc-windows-msvc'
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: artifact-${{ matrix.target }}
