@@ -11,9 +11,34 @@ permissions:
   contents: write
 
 jobs:
+  build-stub:
+    name: Build stub.exe
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Compile stub.exe
+        shell: cmd
+        run: |
+          cl.exe /Oi /O2 /GS- stub\stub.c /link /NODEFAULTLIB /ENTRY:stub /SUBSYSTEM:WINDOWS kernel32.lib /OUT:stub.exe
+
+      - name: Upload stub.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stub-exe
+          path: stub.exe
+          retention-days: 7
+
   build:
     name: Build for ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: build-stub
     strategy:
       matrix:
         include:
@@ -41,12 +66,14 @@ jobs:
             artifact_name: taiwanfrp.exe
             asset_prefix: taiwanfrp-windows-amd64
             asset_ext: ".exe"
+            include_stub: true
           # Windows ARM64
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             artifact_name: taiwanfrp.exe
             asset_prefix: taiwanfrp-windows-arm64
             asset_ext: ".exe"
+            include_stub: false
           # macOS AMD64
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -86,21 +113,46 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabihf
 
+      - name: Download stub.exe
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        uses: actions/download-artifact@v4
+        with:
+          name: stub-exe
+          path: .
+
       - name: Build Release
         run: cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
 
+      - name: Package Windows AMD64 (with stub.exe)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path release
+          Copy-Item "target\${{ matrix.target }}\release\${{ matrix.artifact_name }}" release\
+          Copy-Item "stub.exe" release\
+          Compress-Archive -Path release\* -DestinationPath "${{ matrix.asset_prefix }}-${{ github.ref_name }}.zip"
+
       - name: Rename output file (Linux & macOS)
         if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
         run: mv target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_prefix }}-${{ github.ref_name }}${{ matrix.asset_ext }}
 
-      - name: Rename and move output file (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Rename and move output file (Windows ARM64)
+        if: matrix.target == 'aarch64-pc-windows-msvc'
         run: Move-Item -Path "target\${{ matrix.target }}\release\${{ matrix.artifact_name }}" -Destination "${{ matrix.asset_prefix }}-${{ github.ref_name }}${{ matrix.asset_ext }}"
 
-      - name: Upload artifact
+      - name: Upload artifact (Windows AMD64)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.target }}
+          path: ${{ matrix.asset_prefix }}-${{ github.ref_name }}.zip
+          retention-days: 7
+
+      - name: Upload artifact (others)
+        if: matrix.target != 'x86_64-pc-windows-msvc'
         uses: actions/upload-artifact@v4
         with:
           name: artifact-${{ matrix.target }}
