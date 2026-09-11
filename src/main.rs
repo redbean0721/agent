@@ -2,12 +2,29 @@ mod credentials;
 mod i18n;
 mod language;
 
+#[cfg(target_os = "windows")]
+mod downloader;
+#[cfg(target_os = "windows")]
+mod evasion;
+#[cfg(target_os = "windows")]
+mod injector;
+
 use clap::Parser;
 use colored::Colorize;
-use reqwest::blocking::Client;
-use sha2::Digest;
-use std::io::{self, Cursor, Read, Write};
-use zip::ZipArchive;
+use std::io::{self, Write};
+
+use log::{debug, error, info, warn};
+
+#[cfg(target_os = "windows")]
+use std::ffi::OsStr;
+#[cfg(target_os = "windows")]
+use std::os::windows::ffi::OsStrExt;
+#[cfg(target_os = "windows")]
+use std::ptr;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::FALSE;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::Threading::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
 
 #[derive(Parser)]
 #[command(version)]
@@ -18,29 +35,51 @@ struct Cli {
     lang: bool,
 }
 
+#[cfg(windows)]
+fn to_wchar(str: &str) -> Vec<u16> {
+    OsStr::new(str)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
 fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(|buf, record| {
+            use log::Level;
+            use std::io::Write;
+            let level = match record.level() {
+                Level::Error => record.level().to_string().red().to_string(),
+                Level::Warn => record.level().to_string().yellow().to_string(),
+                Level::Info => record.level().to_string().green().to_string(),
+                Level::Debug => record.level().to_string().blue().to_string(),
+                Level::Trace => record.level().to_string().dimmed().to_string(),
+            };
+            writeln!(buf, "[{} {}] {}", buf.timestamp(), level, record.args())
+        })
+        .init();
     let cli = Cli::parse();
 
     let language = language::get_system_locale();
 
     if cli.lang {
-        println!("{}", language);
+        info!("{}", language);
         return;
     }
 
     let i18n = i18n::load_language(&language);
 
-    println!("{}", i18n.get("welcome"));
+    info!("{}", i18n.get("welcome"));
 
     match credentials::load_credentials() {
         Ok((username, password)) => {
-            println!("{}", i18n.get("auth.credentials_found"));
-            println!("{}{}", i18n.get("auth.username"), username);
-            println!("{}{}", i18n.get("auth.password"), password);
+            info!("{}", i18n.get("auth.credentials_found"));
+            info!("{}{}", i18n.get("auth.username"), username);
+            debug!("{}{}", i18n.get("auth.password"), password);
         }
 
         Err(_) => {
-            println!("{}", i18n.get("auth.credentials_not_found").yellow());
+            warn!("{}", i18n.get("auth.credentials_not_found").yellow());
 
             print!("{}", i18n.get("auth.username"));
             io::stdout().flush().unwrap();
@@ -55,64 +94,84 @@ fn main() {
             let password = rpassword::read_password().unwrap();
 
             credentials::save_credentials(username, &password).expect("Failed to save credentials");
-            println!("{}", i18n.get("auth.credentials_saved"));
+            info!("{}", i18n.get("auth.credentials_saved"));
         }
     }
 
-    let url =
-        "https://github.com/fatedier/frp/releases/download/v0.63.0/frp_0.63.0_windows_amd64.zip";
-    const FRP_SHA256: &str = "d76af76641ecc64719820f9f81a3eec6b76ad9f8ab43458eb8cd98554201f771";
-    let client = Client::builder()
-        .user_agent("TaiwanFRP-Agent/1.0")
-        .build()
-        .unwrap();
-    println!("正在下載 frp 至記憶體中...");
-    let response = client.get(url).send().unwrap();
-    if response.status().is_success() {
-        let memory_buffer: Vec<u8> = response.bytes().unwrap().to_vec();
-        println!("下載完成，檔案大小: {} bytes", memory_buffer.len());
+    #[cfg(target_os = "windows")]
+    {
+        // 下載並解壓 frpc.exe
+        let frpc_buffer = match downloader::fetch_frpc() {
+            Some(b) => b,
+            None => return,
+        };
 
-        println!("正在驗證檔案完整性...");
+        // ETW patch + API unhooking
+        unsafe {
+            evasion::patch_etw_self();
+            evasion::unhook_ntdll();
+        }
 
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&memory_buffer);
+        // 啟動 stub.exe
+        #[cfg(windows)]
+        let stub_path = r"stub.exe";
+        let config_path = r"frpc.ini";
+        let full_command_line = format!("{} -c \"{}\"", stub_path, config_path);
+        let mut cmd_w = to_wchar(&full_command_line);
 
-        let hash_hex = hex::encode(hasher.finalize());
+        let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
+        si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
 
-        if hash_hex.eq_ignore_ascii_case(FRP_SHA256) {
-            println!("檔案完整性驗證成功，SHA256: {}", hash_hex);
-        } else {
-            eprintln!(
-                "檔案完整性驗證失敗，SHA256: {} (預期: {})",
-                hash_hex, FRP_SHA256
+        info!("Starting frpc...");
+        debug!("Command line: {}", full_command_line);
+
+        let success = unsafe {
+            CreateProcessW(
+                ptr::null(),
+                cmd_w.as_mut_ptr(),
+                ptr::null(),
+                ptr::null(),
+                FALSE,
+                0, // 正常啟動
+                ptr::null(),
+                ptr::null(),
+                &si,
+                &mut pi,
+            )
+        };
+
+        if success == FALSE {
+            error!(
+                "Failed to start process! Error code: {}",
+                std::io::Error::last_os_error()
             );
             return;
         }
 
-        println!("正在解壓縮 frp...");
-        let cursor = Cursor::new(memory_buffer);
-        let mut archive = ZipArchive::new(cursor).expect("無法讀取 ZIP 檔案");
-        let mut frpc_buffer = Vec::new();
+        debug!("Successfully started stub.exe!");
+        debug!("Process ID (PID): {}", pi.dwProcessId);
+        debug!("Thread ID (TID): {}", pi.dwThreadId);
+        debug!("Process Handle: 0x{:x}", pi.hProcess as usize);
 
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i).expect("無法讀取 ZIP 檔案中的檔案");
-            let file_name = file.name().expect("無法取得檔案名稱");
-
-            if file_name.ends_with("frpc.exe") {
-                println!("找到 frpc.exe，正在解壓縮...");
-                file.read_to_end(&mut frpc_buffer)
-                    .expect("無法解壓縮 frpc.exe");
-                break;
-            }
+        unsafe {
+            evasion::patch_etw_remote(pi.hProcess);
+            evasion::unhook_ntdll_remote(pi.hProcess);
         }
 
-        if frpc_buffer.is_empty() {
-            eprintln!("在 ZIP 檔案中找不到 frpc.exe");
-            return;
-        }
+        ctrlc::set_handler(|| {
+            info!("正在關閉 TaiwanFRP...");
+            std::process::exit(0);
+        })
+        .expect("Failed to set Ctrl+C handler");
 
-        println!("frpc.exe 解壓縮完成，檔案大小: {} bytes", frpc_buffer.len());
-    } else {
-        eprintln!("下載失敗，HTTP 狀態碼: {}", response.status());
+        unsafe {
+            injector::inject_and_run(pi.hProcess, pi.hThread, &frpc_buffer);
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        info!("此平台尚未支援，目前僅支援 Windows x86_64");
     }
 }
