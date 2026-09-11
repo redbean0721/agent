@@ -114,7 +114,7 @@ jobs:
           sudo apt-get install -y gcc-arm-linux-gnueabihf
 
       - name: Download stub.exe
-        if: matrix.target == 'x86_64-pc-windows-msvc'
+        if: matrix.os == 'windows-latest'
         uses: actions/download-artifact@v4
         with:
           name: stub-exe
@@ -130,13 +130,12 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
 
-      - name: Package Windows AMD64 (with stub.exe)
+      - name: Package Windows AMD64
         if: matrix.target == 'x86_64-pc-windows-msvc'
         shell: powershell
         run: |
           New-Item -ItemType Directory -Path release
           Copy-Item "target\${{ matrix.target }}\release\${{ matrix.artifact_name }}" release\
-          Copy-Item "stub\stub.exe" release\
           Compress-Archive -Path release\* -DestinationPath "${{ matrix.asset_prefix }}-${{ github.ref_name }}.zip"
 
       - name: Rename output file (Linux & macOS)
