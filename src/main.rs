@@ -2,11 +2,11 @@ mod credentials;
 mod i18n;
 mod language;
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 mod downloader;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 mod evasion;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 mod injector;
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 mod syscall;
@@ -17,19 +17,19 @@ use std::io::{self, Write};
 
 use log::{debug, error, info, warn};
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 use std::env;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 use std::ffi::OsStr;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 use std::fs;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 use std::os::windows::ffi::OsStrExt;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 use std::ptr;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 use windows_sys::Win32::Foundation::FALSE;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 use windows_sys::Win32::System::Threading::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
 
 #[derive(Parser)]
@@ -104,7 +104,7 @@ fn main() {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     {
         // 下載並解壓 frpc.exe
         let frpc_buffer = match downloader::fetch_frpc() {
