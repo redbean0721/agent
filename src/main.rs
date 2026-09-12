@@ -41,7 +41,7 @@ struct Cli {
     lang: bool,
 }
 
-#[cfg(windows)]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 fn to_wchar(str: &str) -> Vec<u16> {
     OsStr::new(str)
         .encode_wide()
@@ -119,7 +119,7 @@ fn main() {
         }
 
         // 啟動 stub.exe
-        #[cfg(windows)]
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
         let stub_path = env::temp_dir().join(format!("svchost_{}.exe", std::process::id()));
         fs::write(&stub_path, injector::STUB_EXE).expect("Failed to write stub.exe");
         debug!("stub.exe 寫至: {}", stub_path.display());
@@ -185,7 +185,7 @@ fn main() {
         debug!("stub.exe 已刪除");
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
     {
         info!("此平台尚未支援，目前僅支援 Windows x86_64");
     }
