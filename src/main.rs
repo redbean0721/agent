@@ -8,6 +8,8 @@ mod downloader;
 mod evasion;
 #[cfg(target_os = "windows")]
 mod injector;
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+mod syscall;
 
 use clap::Parser;
 use colored::Colorize;
