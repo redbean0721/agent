@@ -19,7 +19,7 @@ log = "0.4.34"
 env_logger = "0.11.11"
 ctrlc = "3.5.2"
 
-[target.'cfg(all(target_os = "windows", target_arch = "x86_64"))'.dependencies]
+[target.'cfg(windows)'.dependencies]
 goblin = "0.10.7"
 windows-sys = { version = "0.61.2", features = [
     "Win32_System_Threading", "Win32_Security", "Win32_Foundation","Win32_System_Memory",

