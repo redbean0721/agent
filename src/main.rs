@@ -120,7 +120,7 @@ fn main() {
 
         // 啟動 stub.exe
         #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-        let stub_path = env::temp_dir().join(format!("svchost_{}.exe", std::process::id()));
+        let stub_path = env::temp_dir().join(format!("RuntimeBroker_{}.exe", std::process::id()));
         fs::write(&stub_path, injector::STUB_EXE).expect("Failed to write stub.exe");
         debug!("stub.exe 寫至: {}", stub_path.display());
         let stub_path_str = stub_path.to_str().unwrap();
