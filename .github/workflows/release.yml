@@ -35,10 +35,39 @@ jobs:
           path: stub\stub.exe
           retention-days: 7
 
+  check:
+    name: Check (fmt, clippy, test)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check
+
+      - name: Create stub placeholder
+        run: New-Item -ItemType Directory -Path stub -Force; New-Item -ItemType File -Path stub\stub.exe -Force
+
+      - name: cargo fmt
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
   build:
     name: Build for ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    needs: build-stub
+    needs: [build-stub, check]
     strategy:
       matrix:
         include:
