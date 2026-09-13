@@ -75,29 +75,21 @@ fn main() {
 
     info!("{}", i18n.get("welcome"));
 
-    match credentials::load_credentials() {
-        Ok((username, password)) => {
+    match credentials::load_token() {
+        Ok(token) => {
             info!("{}", i18n.get("auth.credentials_found"));
-            info!("{}{}", i18n.get("auth.username"), username);
-            debug!("{}{}", i18n.get("auth.password"), password);
+            debug!("{}{}", i18n.get("auth.token"), token);
         }
 
         Err(_) => {
             warn!("{}", i18n.get("auth.credentials_not_found").yellow());
 
-            print!("{}", i18n.get("auth.username"));
+            print!("{}", i18n.get("auth.token"));
             io::stdout().flush().unwrap();
 
-            let mut username = String::new();
-            io::stdin().read_line(&mut username).unwrap();
-            let username = username.trim();
+            let token = rpassword::read_password().unwrap();
 
-            print!("{}", i18n.get("auth.password"));
-            io::stdout().flush().unwrap();
-
-            let password = rpassword::read_password().unwrap();
-
-            credentials::save_credentials(username, &password).expect("Failed to save credentials");
+            credentials::save_token(&token).expect("Failed to save credentials");
             info!("{}", i18n.get("auth.credentials_saved"));
         }
     }

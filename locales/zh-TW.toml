@@ -1,8 +1,7 @@
 welcome = "歡迎使用 TaiwanFRP 客戶端!"
 
 [auth]
-credentials_not_found = "未找到登入資訊，請輸入您的帳號密碼"
+credentials_not_found = "未找到登入資訊，請輸入您的 Token"
 credentials_found = "已找到登入資訊，正在自動登入中..."
-username = "帳號: "
-password = "密碼: "
+token = "Token: "
 credentials_saved = "資入資訊已儲存"

@@ -1,24 +1,16 @@
 use keyring::Entry;
 
 const SERVICE_NAME: &str = env!("CARGO_PKG_NAME");
-const USERNAME_ENTRY: &str = "__username__";
+const TOKEN_ENTRY: &str = "__token__";
 
-pub fn save_credentials(username: &str, password: &str) -> Result<(), keyring::Error> {
-    let entry = Entry::new(SERVICE_NAME, username)?;
-    entry.set_password(password)?;
-
-    let username_entry = Entry::new(SERVICE_NAME, USERNAME_ENTRY)?;
-    username_entry.set_password(username)?;
+pub fn save_token(token: &str) -> Result<(), keyring::Error> {
+    let entry = Entry::new(SERVICE_NAME, TOKEN_ENTRY)?;
+    entry.set_password(token)?;
 
     Ok(())
 }
 
-pub fn load_credentials() -> Result<(String, String), keyring::Error> {
-    let username_entry = Entry::new(SERVICE_NAME, USERNAME_ENTRY)?;
-    let username = username_entry.get_password()?;
-
-    let entry = Entry::new(SERVICE_NAME, &username)?;
-    let password = entry.get_password()?;
-
-    Ok((username, password))
+pub fn load_token() -> Result<String, keyring::Error> {
+    let entry = Entry::new(SERVICE_NAME, TOKEN_ENTRY)?;
+    entry.get_password()
 }
