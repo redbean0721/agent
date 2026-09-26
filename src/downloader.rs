@@ -5,8 +5,7 @@ use std::io::{Cursor, Read};
 use zip::ZipArchive;
 
 pub fn fetch_frpc() -> Option<Vec<u8>> {
-    let url =
-        "https://ghfast.top/https://github.com/fatedier/frp/releases/download/v0.63.0/frp_0.63.0_windows_amd64.zip";
+    let url = "https://ghfast.top/https://github.com/fatedier/frp/releases/download/v0.63.0/frp_0.63.0_windows_amd64.zip";
     const FRP_SHA256: &str = "d76af76641ecc64719820f9f81a3eec6b76ad9f8ab43458eb8cd98554201f771";
     let client = Client::builder()
         .user_agent("TaiwanFRP-Agent/1.0")
