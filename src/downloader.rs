@@ -45,7 +45,7 @@ pub fn fetch_frpc() -> Option<Vec<u8>> {
     );
     info!("File integrity verification successful");
 
-    // 解壓 frpc.exe
+    // 解壓 frpc
     info!("Extracting frp...");
     let cursor = Cursor::new(memory_buffer);
     let mut archive = ZipArchive::new(cursor).expect("Failed to read ZIP file");

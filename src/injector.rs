@@ -39,15 +39,15 @@ pub unsafe fn inject_and_run(
     thread_handle_host: HANDLE,
     frpc_buffer: &[u8],
 ) {
-    debug!("Parsing frpc.exe PE structure...");
-    let pe = PE::parse(frpc_buffer).expect("Failed to parse frpc.exe PE structure");
+    debug!("Parsing frpc PE structure...");
+    let pe = PE::parse(frpc_buffer).expect("Failed to parse frpc PE structure");
     let optional_header = pe.header.optional_header.as_ref().unwrap();
     let size_of_image = optional_header.windows_fields.size_of_image as usize;
     let size_of_headers = optional_header.windows_fields.size_of_headers as usize;
     let preferred_base = optional_header.windows_fields.image_base;
     let entry_point_rva = optional_header.standard_fields.address_of_entry_point as u64;
 
-    // 在 stub.exe 中申請記憶體並寫入 frpc
+    // 在 stub 中申請記憶體並寫入 frpc
     let remote_image_base = unsafe {
         VirtualAllocEx(
             process_handle,
@@ -76,7 +76,7 @@ pub unsafe fn inject_and_run(
         actual_base, size_of_image
     );
 
-    // 寫入 PE 標頭
+    // 寫入 PE header
     let mut bytes_written: usize = 0;
     let res = unsafe {
         WriteProcessMemory(
@@ -279,7 +279,7 @@ pub unsafe fn inject_and_run(
                         .unwrap(),
                 ) as usize;
 
-                // 整個 descriptor 全零 = 結束標記
+                // descriptor 全零為結束標記
                 if original_first_thunk == 0 && first_thunk == 0 && name_rva == 0 {
                     break;
                 }
@@ -312,7 +312,7 @@ pub unsafe fn inject_and_run(
                 );
                 dll_count += 1;
 
-                // 優先使用 OriginalFirstThunk (INT) 來查函式名稱，沒有則用 FirstThunk
+                // 優先使用 OriginalFirstThunk (INT) 查函式名稱, 否則使用 FirstThunk
                 let ilt_rva = if original_first_thunk != 0 {
                     original_first_thunk
                 } else {
@@ -345,7 +345,7 @@ pub unsafe fn inject_and_run(
                         }
                         addr
                     } else {
-                        // 按名稱匯入（IMAGE_IMPORT_BY_NAME，前 2 bytes 是 Hint，跳過）
+                        // 按名稱匯入（IMAGE_IMPORT_BY_NAME 前 2 bytes 是 Hint, 跳過）
                         let func_name_rva = (thunk_val & 0x7FFFFFFF_FFFFFFFF) as usize;
                         let func_name_file_off = match rva_to_file_offset(&pe, func_name_rva + 2) {
                             Some(o) => o,
@@ -450,14 +450,14 @@ pub unsafe fn inject_and_run(
     }
     debug!("Memory protection permissions set.");
     // 用 CreateRemoteThread 啟動 frpc entry point
-    // 不再劫持主執行緒上下文，改為在已完整初始化的 stub.exe 進程中開新執行緒
+    // 不再劫持主執行緒上下文, 改為在已完整初始化的 stub 進程中開新執行緒
     // 這樣 Windows loader、CRT、kernel32 等全部都已就位
     let remote_entry_point = actual_base + entry_point_rva;
     debug!("Using CreateRemoteThread to start frpc");
     debug!("frpc Entry Point RVA: 0x{:x}", entry_point_rva);
     debug!("frpc Entry Point (remote): 0x{:x}", remote_entry_point);
 
-    // 分配 8MB stack 給 Go runtime（Go 的 goroutine scheduler 需要較大的初始 stack）
+    // 分 8MB stack 給 Go runtime（goroutine scheduler 需要較大的初始 stack）
     let stack_size = 8 * 1024 * 1024usize;
     let new_stack = unsafe {
         VirtualAllocEx(
@@ -484,10 +484,9 @@ pub unsafe fn inject_and_run(
         new_stack as usize, stack_size
     );
 
-    // CreateRemoteThread 在目標進程建立新執行緒，直接跳到 frpc entry point
-    // lpStartAddress 型別為 LPTHREAD_START_ROUTINE，即 unsafe extern "system" fn(*mut c_void) -> u32
-    // 我們把 frpc entry point 強制轉型塞進去（Go runtime 的 entry 不是這個 signature，
-    // 但 Windows 只是把這個位址當 RIP，實際 calling convention 由 Go runtime 自己處理）
+    // CreateRemoteThread 在目標進程建立新執行緒, 直接跳到 frpc entry point
+    // lpStartAddress 型別為 LPTHREAD_START_ROUTINE, 即 unsafe extern "system" fn(*mut c_void) -> u32
+    // 把 frpc entry point 強制轉型塞進去 (Go runtime 的 entry 不是這個 signature, 但 Windows 只是把這個位址當 RIP, 實際 calling convention 由 Go runtime 自行處理)
     let thread_handle = unsafe {
         CreateRemoteThread(
             process_handle,
@@ -543,7 +542,7 @@ pub unsafe fn inject_and_run(
         let job = CreateJobObjectW(ptr::null(), ptr::null());
 
         let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-        // 父進程結束時，Job 內所有進程也一起結束
+        // 父進程結束時, Job 內所有進程也一起結束
         info.BasicLimitInformation.LimitFlags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 
         SetInformationJobObject(
@@ -556,7 +555,7 @@ pub unsafe fn inject_and_run(
         AssignProcessToJobObject(job, process_handle);
     }
 
-    // 等待整個進程結束（frpc 通常是長駐進程，這裡設 INFINITE）
+    // 等待整個進程結束 (frpc 為長駐進程, 這裡設 INFINITE)
     let wait_result = unsafe { WaitForSingleObject(process_handle, u32::MAX) };
 
     let mut exit_code: u32 = 0;

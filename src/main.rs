@@ -1,6 +1,7 @@
 mod credentials;
 mod i18n;
 mod language;
+mod updater;
 
 #[cfg(target_os = "windows")]
 mod downloader;
@@ -13,8 +14,10 @@ use clap::Parser;
 use colored::Colorize;
 use std::io::{self, Write};
 
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 
+#[cfg(target_os = "windows")]
+use log::error;
 #[cfg(target_os = "windows")]
 use std::env;
 #[cfg(target_os = "windows")]
@@ -37,6 +40,10 @@ struct Cli {
     /// Show the system language
     #[arg(long)]
     lang: bool,
+
+    /// Check for and install the latest version
+    #[arg(long)]
+    update: bool,
 }
 
 #[cfg(windows)]
@@ -63,6 +70,10 @@ fn main() {
         })
         .init();
     let cli = Cli::parse();
+
+    if cli.update {
+        updater::update_and_exit();
+    }
 
     let language = language::get_system_locale();
 
@@ -96,7 +107,7 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     {
-        // 下載並解壓 frpc.exe
+        // 下載並解壓 frpc
         let frpc_buffer = match downloader::fetch_frpc() {
             Some(b) => b,
             None => return,
