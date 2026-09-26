@@ -1,6 +1,6 @@
 [package]
 name = "taiwanfrp"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "An FRP agent for TaiwanFRP"
 

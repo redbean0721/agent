@@ -35,7 +35,7 @@ pub fn run_update() -> Result<(), Box<dyn std::error::Error>> {
     let target = asset_target().ok_or("unsupported platform for self-update")?;
 
     let status = self_update::backends::github::Update::configure()
-        .repo_owner("taiwanfrp")
+        .repo_owner("redbean0721")
         .repo_name("agent")
         .bin_name("taiwanfrp")
         // 以 "<os>-<arch>" 子字串比對資產,避免誤中其他平台
